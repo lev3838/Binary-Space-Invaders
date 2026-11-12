@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Byte Blaster</title>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root{color-scheme:dark;--bg:#14163a;--panel:#20245a;--ink:#f4f1ff;--dim:#a9a8d6;--ship:#ffd23f;--rock:#ff7a8a;--good:#5ef0d0;--bad:#ff6b6b;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--ink);font-family:'Fredoka',system-ui,sans-serif;overflow:hidden}
+body{display:flex;flex-direction:column}
+#hud{display:flex;justify-content:space-between;gap:12px;padding:8px 14px;font-size:17px;font-weight:600;background:var(--panel)}
+#hud span b{color:var(--ship)}
+#clue{padding:10px 14px;background:#2b2f70;text-align:center;font-size:clamp(16px,2.6vw,24px);min-height:3.2em;display:flex;align-items:center;justify-content:center}
+#clue i{font-style:normal;color:var(--good);margin-right:.5em}
+#stage{position:relative;flex:1;min-height:0}
+canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+#toast{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);max-width:92%;padding:10px 16px;border-radius:14px;background:var(--panel);font-size:17px;text-align:center;opacity:0;transition:opacity .25s;pointer-events:none}
+#toast.show{opacity:1}
+#toast.good{border:2px solid var(--good)}
+#toast.bad{border:2px solid var(--bad)}
+#overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(20,22,58,.88);padding:16px;overflow:auto}
+#card{max-width:520px;text-align:center}
+#card h1{font-size:clamp(38px,8vw,62px);margin:0 0 6px;color:var(--ship);letter-spacing:.01em}
+#card p{margin:8px 0;font-size:18px;line-height:1.4;color:var(--dim)}
+#card ul{text-align:left;font-size:16px;color:var(--ink);padding-left:20px;margin:8px 0}
+button{font:inherit;font-weight:700;cursor:pointer;border:0}
+#go{margin-top:12px;padding:12px 30px;font-size:22px;border-radius:999px;background:var(--ship);color:#2a2200}
+#go:focus-visible,.pad:focus-visible{outline:3px solid var(--good);outline-offset:3px}
+#pad{display:none;justify-content:space-between;padding:8px 12px;gap:8px;background:var(--panel)}
+.pad{flex:1;padding:14px 0;font-size:20px;border-radius:12px;background:#3a3f8f;color:var(--ink);touch-action:none;user-select:none}
+.pad.fire{background:var(--rock);color:#2a0008;flex:1.4}
+@media (pointer:coarse){#pad{display:flex}}
+</style>
+</head>
+<body>
+<div id="hud"><span>Score <b id="sc">0</b></span><span>Word <b id="pr">1/10</b></span><span>Streak <b id="st">0</b></span><span id="lv">♥ ♥ ♥</span></div>
+<div id="clue"></div>
+<div id="stage"><canvas id="cv"></canvas><div id="toast"></div>
+<div id="overlay"><div id="card"></div></div></div>
+<div id="pad"><button class="pad" data-k="left" aria-label="Turn left">⟲</button><button class="pad" data-k="right" aria-label="Turn right">⟳</button><button class="pad" data-k="up" aria-label="Thrust">Thrust</button><button class="pad fire" data-k="fire" aria-label="Fire">Fire</button></div>
+<script>
+const WORDS=[["binary","Number system that uses only 0 and 1."],["bit","Smallest unit of data in a computer, either 0 or 1."],["byte","Group of 8 bits that can stand for a letter or number."],["cache","Small storage area that helps a computer work faster."],["circuit","Path that electricity moves through in a computer."],["coding","Writing instructions for a computer."],["computer","Machine that uses data and instructions to work."],["data","Information that a computer uses or stores."],["digital","Information made of 0s and 1s."],["download","Moving information from the internet to a device."],["error","Mistake in a computer program or system."],["file","Place where information is saved on a computer."],["hardware","Physical parts of a computer."],["input","Information that goes into a computer."],["memory","Part of a computer that stores information."],["microchip","Small part that holds electronic circuits."],["output","Information that comes out of a computer."],["pixel","Tiny dot that makes up a picture on a screen."],["RAM","Random Access Memory."],["ROM","Read-Only Memory."],["resolution","How clear a digital image is."],["router","Device that sends data between networks."],["save","Store information for later use."],["signal","Message sent in a computer system."],["storage","Place where digital information is kept."],["switch","Part of a computer that can be on or off."],["system","Parts that work together in a computer."],["transmit","Send information from one place to another."],["upload","Sending information to the internet."],["zero","Binary number that means off."]];
+const ROUNDS=10, NROCKS=6, R=46;
+const $=id=>document.getElementById(id), cv=$('cv'), ctx=cv.getContext('2d');
+let W=0,H=0,mode='title',ship,rocks,bullets,parts,stars,queue,qi,target,score,streak,lives,missed,keys={},cool=0,toastT=0,best=0;
+const rnd=(a,b)=>a+Math.random()*(b-a), shuffle=a=>a.map(v=>[Math.random(),v]).sort((x,y)=>x[0]-y[0]).map(x=>x[1]);
+
+function resize(){const r=$('stage').getBoundingClientRect();const d=devicePixelRatio||1;W=r.width;H=r.height;cv.width=W*d;cv.height=H*d;ctx.setTransform(d,0,0,d,0,0);
+ stars=Array.from({length:70},()=>({x:rnd(0,W),y:rnd(0,H),s:rnd(.6,2),p:rnd(0,6)}));}
+new ResizeObserver(resize).observe($('stage'));
+
+function mkRock(word){let x,y;do{x=rnd(0,W);y=rnd(0,H)}while(ship&&Math.hypot(x-ship.x,y-ship.y)<170);
+ const a=rnd(0,6.28),sp=rnd(.4,1.1);
+ return{x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,word,rot:rnd(0,6.28),vr:rnd(-.01,.01),shape:Array.from({length:12},()=>rnd(.86,1.08))};}
+function distractor(){const used=new Set(rocks.map(r=>r.word));const pool=WORDS.filter(w=>!used.has(w[0])&&w[0]!==target[0]);return pool[Math.floor(Math.random()*pool.length)][0];}
+function ensureRocks(){
+ if(!rocks.some(r=>r.word===target[0])){ if(rocks.length>=NROCKS){rocks[Math.floor(Math.random()*rocks.length)].word=target[0];} else rocks.push(mkRock(target[0])); }
+ while(rocks.length<NROCKS) rocks.push(mkRock(distractor()));
+}
+function setClue(){$('clue').innerHTML='<i>Shoot the word that means:</i> '+target[1];$('pr').textContent=(qi+1)+'/'+ROUNDS;}
+function hud(){$('sc').textContent=score;$('st').textContent=streak;$('lv').textContent=Array.from({length:3},(_,i)=>i<lives?'♥':'♡').join(' ');}
+function toast(msg,cls){const t=$('toast');t.innerHTML=msg;t.className='show '+cls;clearTimeout(toastT);toastT=setTimeout(()=>t.className='',3200);}
+function boom(x,y,c,n=22){for(let i=0;i<n;i++){const a=rnd(0,6.28),s=rnd(1,4.5);parts.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,l:rnd(25,50),c});}}
+function resetShip(){ship={x:W/2,y:H/2,a:-Math.PI/2,vx:0,vy:0,inv:120};}
+
+function start(){
+ resize();
+ queue=shuffle(WORDS).slice(0,ROUNDS);qi=0;target=queue[0];score=0;streak=0;lives=3;missed=[];bullets=[];parts=[];rocks=[];
+ resetShip();ensureRocks();setClue();hud();$('overlay').style.display='none';mode='play';$('toast').className='';
+}
+function end(won){
+ mode='over';best=Math.max(best,score);
+ const rev=missed.length?'<p style="color:var(--ink)">Words to review:</p><ul>'+missed.map(w=>'<li><b>'+w[0]+'</b> — '+w[1]+'</li>').join('')+'</ul>':'<p style="color:var(--good)">You didn’t miss a single word!</p>';
+ $('card').innerHTML='<h1>'+(won?'Mission complete':'Ship down')+'</h1><p>You reached word '+Math.min(qi+1,ROUNDS)+' of '+ROUNDS+' and scored <b style="color:var(--ship)">'+score+'</b>. Best: '+best+'.</p>'+rev+'<button id="go">Play again</button>';
+ $('overlay').style.display='flex';$('go').onclick=start;$('go').focus();
+}
+function title(){
+ $('card').innerHTML='<h1>Byte Blaster</h1><p>Each round shows a computer word’s meaning. Find the asteroid with the matching word and blast it.</p><ul><li>Turn: ← → or A D</li><li>Thrust: ↑ or W</li><li>Fire: Space</li><li>Right word: +points and a streak bonus</li><li>Wrong word: −25 points. Hitting any asteroid with your ship costs a heart.</li></ul><button id="go">Start</button>';
+ $('go').onclick=start;$('go').focus();$('clue').textContent='Get ready to learn 10 computer words.';
+}
+
+function hitRock(i){
+ const r=rocks[i];
+ if(r.word===target[0]){
+  score+=100+streak*20;streak++;boom(r.x,r.y,'#5ef0d0',34);rocks.splice(i,1);
+  toast('✓ <b>'+target[0]+'</b>: '+target[1],'good');qi++;
+  if(qi>=ROUNDS){hud();return end(true);}
+  target=queue[qi];setClue();ensureRocks();
+ }else{
+  const w=WORDS.find(x=>x[0]===r.word);score=Math.max(0,score-25);streak=0;
+  if(!missed.some(m=>m[0]===target[0]))missed.push(target);
+  boom(r.x,r.y,'#ff6b6b');rocks.splice(i,1);ensureRocks();
+  toast('✗ That was <b>'+w[0]+'</b>: '+w[1],'bad');
+ }
+ hud();
+}
+
+function update(k){
+ if(keys.left)ship.a-=.07*k;if(keys.right)ship.a+=.07*k;
+ if(keys.up){ship.vx+=Math.cos(ship.a)*.12*k;ship.vy+=Math.sin(ship.a)*.12*k;parts.push({x:ship.x-Math.cos(ship.a)*12,y:ship.y-Math.sin(ship.a)*12,vx:-Math.cos(ship.a)*2+rnd(-.5,.5),vy:-Math.sin(ship.a)*2+rnd(-.5,.5),l:12,c:'#ffb347'});}
+ const sp=Math.hypot(ship.vx,ship.vy);if(sp>6){ship.vx*=6/sp;ship.vy*=6/sp;}
+ ship.vx*=Math.pow(.99,k);ship.vy*=Math.pow(.99,k);
+ ship.x=(ship.x+ship.vx*k+W)%W;ship.y=(ship.y+ship.vy*k+H)%H;if(ship.inv>0)ship.inv-=k;
+ cool-=k;if(keys.fire&&cool<=0){bullets.push({x:ship.x+Math.cos(ship.a)*16,y:ship.y+Math.sin(ship.a)*16,vx:Math.cos(ship.a)*8+ship.vx,vy:Math.sin(ship.a)*8+ship.vy,l:75});cool=14;}
+ for(const b of bullets){b.x=(b.x+b.vx*k+W)%W;b.y=(b.y+b.vy*k+H)%H;b.l-=k;}
+ bullets=bullets.filter(b=>b.l>0);
+ for(const r of rocks){r.x=(r.x+r.vx*k+W)%W;r.y=(r.y+r.vy*k+H)%H;r.rot+=r.vr*k;}
+ for(const p of parts){p.x+=p.vx*k;p.y+=p.vy*k;p.l-=k;}
+ parts=parts.filter(p=>p.l>0);
+ outer:for(let bi=bullets.length-1;bi>=0;bi--)for(let i=rocks.length-1;i>=0;i--){
+  if(Math.hypot(bullets[bi].x-rocks[i].x,bullets[bi].y-rocks[i].y)<R){bullets.splice(bi,1);hitRock(i);if(mode!=='play')return;continue outer;}
+ }
+ if(ship.inv<=0)for(let i=0;i<rocks.length;i++){const r=rocks[i];
+  if(Math.hypot(ship.x-r.x,ship.y-r.y)<R+9){
+   lives--;streak=0;boom(ship.x,ship.y,'#ffd23f',30);hud();
+   Object.assign(r,mkRock(r.word));resetShip();
+   toast('Ouch! Watch out for asteroids.','bad');
+   if(lives<=0)return end(false);break;}}
+}
+
+function draw(t){
+ ctx.fillStyle='#14163a';ctx.fillRect(0,0,W,H);
+ for(const s of stars){ctx.globalAlpha=.4+.4*Math.sin(t/700+s.p);ctx.fillStyle='#fff';ctx.fillRect(s.x,s.y,s.s,s.s);}
+ ctx.globalAlpha=1;
+ if(!rocks)return;
+ for(const r of rocks){
+  ctx.save();ctx.translate(r.x,r.y);ctx.rotate(r.rot);ctx.beginPath();
+  r.shape.forEach((m,i)=>{const a=i/12*6.283;const x=Math.cos(a)*R*m,y=Math.sin(a)*R*m;i?ctx.lineTo(x,y):ctx.moveTo(x,y);});
+  ctx.closePath();ctx.fillStyle='rgba(255,122,138,.16)';ctx.fill();ctx.lineWidth=3;ctx.strokeStyle='#ff7a8a';ctx.stroke();ctx.restore();
+  ctx.fillStyle='#fff';ctx.font='700 16px Fredoka, sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(r.word,r.x,r.y);
+ }
+ ctx.fillStyle='#fff';for(const b of bullets){ctx.beginPath();ctx.arc(b.x,b.y,3,0,6.283);ctx.fill();}
+ for(const p of parts){ctx.globalAlpha=Math.min(1,p.l/25);ctx.fillStyle=p.c;ctx.fillRect(p.x,p.y,3,3);}
+ ctx.globalAlpha=1;
+ if(mode==='play'&&(ship.inv<=0||Math.floor(t/90)%2)){
+  ctx.save();ctx.translate(ship.x,ship.y);ctx.rotate(ship.a);ctx.beginPath();ctx.moveTo(17,0);ctx.lineTo(-12,-11);ctx.lineTo(-6,0);ctx.lineTo(-12,11);ctx.closePath();
+  ctx.fillStyle='#ffd23f';ctx.fill();ctx.restore();
+ }
+}
+
+let last=0;
+function loop(t){requestAnimationFrame(loop);const k=Math.min((t-last)/16.67||1,3);last=t;if(!stars)return;try{if(mode==='play')update(k);draw(t);}catch(e){console.error(e);}}
+
+const map={ArrowLeft:'left',a:'left',A:'left',ArrowRight:'right',d:'right',D:'right',ArrowUp:'up',w:'up',W:'up',' ':'fire'};
+addEventListener('keydown',e=>{if(mode==='play'&&map[e.key]){keys[map[e.key]]=true;e.preventDefault();}});
+addEventListener('keyup',e=>{if(map[e.key])keys[map[e.key]]=false;});
+document.querySelectorAll('.pad').forEach(b=>{const k=b.dataset.k;
+ b.addEventListener('pointerdown',e=>{e.preventDefault();keys[k]=true;});
+ ['pointerup','pointerleave','pointercancel'].forEach(ev=>b.addEventListener(ev,()=>keys[k]=false));});
+resize();title();requestAnimationFrame(loop);
+</script>
+</body>
+</html>
